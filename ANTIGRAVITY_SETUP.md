@@ -92,6 +92,55 @@ curl -N http://127.0.0.1:8081/v1/chat/completions \
   -d '{"model":"antigravity/gemini-3.8-flash-low","stream":true,"messages":[{"role":"user","content":"Reply with exactly: Antigravity works"}]}'
 ```
 
+## Open the same gateway in Antigravity IDE
+
+The Antigravity IDE can use the same gateway variables. Open a second terminal
+and set them again (the Antigravity app occupies the terminal used to launch
+it). Use a separate temporary IDE profile so its normal profile and settings
+remain untouched:
+
+```sh
+read -s 'GATEWAY_API_KEY?Gateway API key: '
+echo
+export AGY_LLM_GATEWAY_URL='http://127.0.0.1:8081'
+export AGY_LLM_GATEWAY_API_KEY="$GATEWAY_API_KEY"
+export AGY_LLM_GATEWAY_WIRE_PROTOCOL='openai'
+export AGY_LLM_GATEWAY_MODELS="$(curl -fsS "$AGY_LLM_GATEWAY_URL/v1/models" \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" | jq -r '.data | map(.id) | join(",")')"
+
+/Applications/Antigravity\ IDE.app/Contents/MacOS/Electron \
+  --user-data-dir=/private/tmp/antigravity-ide-gateway-profile --new-window
+```
+
+The IDE model picker should show the same IDs returned by the gateway's
+`/v1/models` endpoint. Environment variables do not carry over when the IDE is
+opened from the Dock; run the launch commands again in a terminal. The Antigravity
+app and IDE share local Antigravity sign-in credentials, so there is no need to
+copy credential or token files between their profiles.
+
+## Switch Google accounts when Antigravity quota is exhausted
+
+First identify the provider from the selected model ID:
+
+- For `antigravity/...` models, the request uses the Google account signed in to
+  the local Antigravity CLI. In an interactive `agy` session, enter `/logout`,
+  then start `agy` again and sign in with the other Google account. Restart the
+  IDE after signing in. Antigravity shares local sign-in credentials between
+  its app, CLI, and IDE, so this signs out of the shared local Antigravity
+  session.
+- For Gemini Web IDs such as `gemini-3.1-pro`, the request uses the Gemini
+  account represented by the cookie file configured on the local gateway. The
+  IDE's Google sign-in does not switch that account. To use another account,
+  configure a separate cookie file for that account in the gateway's existing
+  `cookie_file` setting, then restart the gateway. Do not paste cookies or
+  tokens into the IDE, this guide, or chat.
+- The `sk-gemini` value is the local gateway API key; it is not the Google
+  account credential and switching it does not change model quota.
+
+If this IDE session is using an API-key or enterprise gateway authentication
+mode instead of a personal Antigravity sign-in, `/logout` does not switch the
+upstream account; switch the account or key at the gateway provider instead.
+
 ## Current limits and troubleshooting
 
 - The `antigravity/` adapter currently handles text chat only. It rejects
