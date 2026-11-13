@@ -42,35 +42,61 @@ def discover_models(config, timeout=20):
     return models
 
 
-def _prompt_from_messages(messages):
-    """Flatten OpenAI text messages while keeping role boundaries explicit."""
+def _prompt_from_messages(messages, tools=None, tool_choice=None):
+    """Convert OpenAI text messages and optional tool schemas to a CLI prompt."""
+    from .tools import messages_to_prompt
+
     if not isinstance(messages, list) or not messages:
         raise ValueError("messages must be a non-empty array")
-    parts = []
+    if any(not isinstance(message, dict) for message in messages):
+        raise ValueError("each message must be an object")
+    if tools is not None:
+        if not isinstance(tools, list):
+            raise ValueError("tools must be an array")
+        for tool in tools:
+            function = tool.get("function", tool) if isinstance(tool, dict) else None
+            if not isinstance(function, dict) or not isinstance(function.get("name"), str) or not function["name"]:
+                raise ValueError("each tool must define a function name")
     for message in messages:
-        if not isinstance(message, dict):
-            raise ValueError("each message must be an object")
-        role = message.get("role", "user")
         content = message.get("content", "")
-        if isinstance(content, list):
-            text = []
-            for item in content:
-                if not isinstance(item, dict) or item.get("type") != "text":
-                    raise ValueError("Antigravity CLI supports text message content only")
-                text.append(str(item.get("text", "")))
-            content = "\n".join(text)
-        if not isinstance(content, str):
+        if isinstance(content, list) and any(
+            not isinstance(item, dict) or item.get("type") not in ("text", "input_text")
+            for item in content
+        ):
             raise ValueError("Antigravity CLI supports text message content only")
-        parts.append(f"[{role}]\n{content}")
-    return "\n\n".join(parts)
+        if not isinstance(content, (str, list)) and content is not None:
+            raise ValueError("Antigravity CLI supports text message content only")
+    prompt, images = messages_to_prompt(messages, tools, tool_choice)
+    if images:
+        raise ValueError("Antigravity CLI supports text message content only")
+    return prompt
 
 
-def stream_completion(model_id, messages, config):
+def parse_tool_calls(text, tools, tool_choice=None):
+    """Parse only calls whose function names were declared by the client."""
+    from .tools import parse_tool_calls as parse_openai_tool_calls
+
+    clean, calls = parse_openai_tool_calls(text)
+    allowed = set()
+    for tool in tools or []:
+        if not isinstance(tool, dict):
+            continue
+        function = tool.get("function", tool)
+        if isinstance(function, dict) and isinstance(function.get("name"), str):
+            allowed.add(function["name"])
+    if isinstance(tool_choice, dict):
+        selected = tool_choice.get("function", {}).get("name")
+        if selected:
+            allowed.intersection_update({selected})
+    return clean, [call for call in calls if call["function"]["name"] in allowed]
+
+
+def stream_completion(model_id, messages, config, tools=None, tool_choice=None):
     """Yield text deltas from a one-shot, isolated headless CLI session."""
     cli = find_cli(config)
     if not cli:
         raise RuntimeError("Antigravity CLI (agy) was not found; set antigravity_cli or add it to PATH")
-    prompt = _prompt_from_messages(messages)
+    prompt = _prompt_from_messages(messages, tools, tool_choice)
     # Empty cwd and sandboxed plan mode keep API prompts away from the project tree
     # and avoid granting the agent permission to execute workspace changes.
     with tempfile.TemporaryDirectory(prefix="gemini-web2api-agy-") as workdir:

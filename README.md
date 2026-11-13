@@ -103,7 +103,7 @@ Example:
 }
 ```
 
-This adapter accepts text messages only. OpenAI tools/function calling and multimodal content are rejected with HTTP 400. Antigravity requests use the credentials already held by the CLI and are subject to the account's Antigravity access and quota.
+This adapter accepts text messages and OpenAI function tools; tool definitions are passed to `agy` as structured prompt instructions, and parsed tool calls are returned in OpenAI format. The adapter itself never executes caller tools. Multimodal content is rejected with HTTP 400. Antigravity requests use the credentials already held by the CLI and are subject to the account's Antigravity access and quota.
 
 ## Available Models
 

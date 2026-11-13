@@ -4,8 +4,17 @@ import subprocess
 import unittest
 from unittest import mock
 
-from gemini_web2api.antigravity import _prompt_from_messages, discover_models, stream_completion
+from gemini_web2api.antigravity import (
+    _prompt_from_messages, discover_models, parse_tool_calls as parse_antigravity_tool_calls,
+    stream_completion,
+)
 from gemini_web2api.server import GeminiHandler, ThreadedServer
+import runpy
+from pathlib import Path
+monolithic_server = runpy.run_path(
+    str(Path(__file__).resolve().parents[1] / "gemini_web2api.py"),
+    run_name="gemini_web2api_monolithic_test",
+)
 
 
 class AntigravityAdapterTests(unittest.TestCase):
@@ -21,6 +30,26 @@ class AntigravityAdapterTests(unittest.TestCase):
     def test_text_message_conversion_rejects_images(self):
         with self.assertRaisesRegex(ValueError, "text message content only"):
             _prompt_from_messages([{"role": "user", "content": [{"type": "image_url"}]}])
+
+    def test_tool_schemas_are_included_in_prompt(self):
+        prompt = _prompt_from_messages(
+            [{"role": "user", "content": "Add two numbers"}],
+            [{"type": "function", "function": {
+                "name": "add", "description": "Add two numbers",
+                "parameters": {"type": "object", "properties": {"a": {"type": "number"}}},
+            }}],
+            "auto",
+        )
+        self.assertIn('"name": "add"', prompt)
+        self.assertIn("```tool_call", prompt)
+
+    def test_tool_response_is_limited_to_declared_tool_names(self):
+        text, calls = parse_antigravity_tool_calls(
+            '```tool_call\n{"name":"unsafe","arguments":{}}\n```',
+            [{"type": "function", "function": {"name": "lookup"}}],
+        )
+        self.assertEqual(text, "")
+        self.assertEqual(calls, [])
 
     @mock.patch("gemini_web2api.antigravity.tempfile.TemporaryDirectory")
     @mock.patch("gemini_web2api.antigravity.subprocess.Popen")
@@ -92,6 +121,94 @@ class AntigravityEndpointTests(unittest.TestCase):
         conn.close()
         self.assertEqual(response.status, 200)
         self.assertIn('"content": "Hello"', data)
+        self.assertIn("data: [DONE]", data)
+
+
+class MonolithicLauncherEndpointTests(unittest.TestCase):
+    """The documented launcher runs gemini_web2api.py, so cover its handler too."""
+
+    @classmethod
+    def setUpClass(cls):
+        from http.server import HTTPServer
+        from socketserver import ThreadingMixIn
+
+        class Server(ThreadingMixIn, HTTPServer):
+            daemon_threads = True
+
+        cls.server = Server(("127.0.0.1", 0), monolithic_server["GeminiHandler"])
+        cls.thread = __import__("threading").Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join(timeout=2)
+
+    @mock.patch("gemini_web2api.antigravity.stream_completion", return_value=iter([
+        '```tool_call\n{"name":"lookup","arguments":{"query":"x"}}\n```'
+    ]))
+    def test_monolithic_chat_returns_openai_tool_call(self, completion):
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        body = json.dumps({
+            "model": "antigravity/model-x",
+            "messages": [{"role": "user", "content": "Look this up"}],
+            "tools": [{"type": "function", "function": {
+                "name": "lookup", "parameters": {"type": "object"},
+            }}],
+        })
+        conn.request("POST", "/v1/chat/completions", body, {"Content-Type": "application/json"})
+        response = conn.getresponse()
+        data = json.loads(response.read())
+        conn.close()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(data["choices"][0]["finish_reason"], "tool_calls")
+        self.assertEqual(data["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "lookup")
+        self.assertEqual(completion.call_args.args[-2], json.loads(body)["tools"])
+
+    @mock.patch("gemini_web2api.antigravity.stream_completion", return_value=iter([
+        '```tool_call\n{"name":"lookup","arguments":{"query":"x"}}\n```'
+    ]))
+    def test_chat_completion_returns_openai_tool_call(self, completion):
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        body = json.dumps({
+            "model": "antigravity/model-x",
+            "messages": [{"role": "user", "content": "Look this up"}],
+            "tools": [{"type": "function", "function": {
+                "name": "lookup", "parameters": {"type": "object"},
+            }}],
+        })
+        conn.request("POST", "/v1/chat/completions", body, {"Content-Type": "application/json"})
+        response = conn.getresponse()
+        data = json.loads(response.read())
+        conn.close()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(data["choices"][0]["finish_reason"], "tool_calls")
+        self.assertEqual(data["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "lookup")
+        self.assertEqual(completion.call_args.args[-2], json.loads(body)["tools"])
+
+    @mock.patch("gemini_web2api.antigravity.stream_completion", return_value=iter([
+        '```tool_call\n{"name":"lookup","arguments":{"query":"x"}}\n```'
+    ]))
+    def test_chat_completion_streaming_returns_tool_call_chunk(self, _completion):
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        body = json.dumps({
+            "model": "antigravity/model-x", "stream": True,
+            "messages": [{"role": "user", "content": "Look this up"}],
+            "tools": [{"type": "function", "function": {
+                "name": "lookup", "parameters": {"type": "object"},
+            }}],
+        })
+        conn.request("POST", "/v1/chat/completions", body, {"Content-Type": "application/json"})
+        response = conn.getresponse()
+        data = response.read().decode()
+        conn.close()
+        self.assertEqual(response.status, 200)
+        self.assertIn('"tool_calls"', data)
+        self.assertIn('"finish_reason": "tool_calls"', data)
         self.assertIn("data: [DONE]", data)
 
 

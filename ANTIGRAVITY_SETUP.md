@@ -1,20 +1,23 @@
 # Antigravity Gateway Setup (macOS)
 
-This guide connects Antigravity IDE to a local `gemini-web2api` server through
-Antigravity's OpenAI-compatible enterprise gateway. It uses a separate temporary
-Antigravity profile and environment variables; it does not edit the normal IDE
-profile or global Antigravity settings.
+This guide connects the Antigravity App to a local `gemini-web2api` server
+through Antigravity's OpenAI-compatible enterprise gateway. It uses a separate
+temporary app profile and environment variables; it does not edit the normal
+app or IDE profile or global Antigravity settings. The standalone Antigravity
+IDE does not support custom enterprise gateways; use the Antigravity App for
+this integration.
 
-For one-click switching between App and IDE profiles, double-click
+For one-click switching, double-click
 [`switch_antigravity_profile.command`](switch_antigravity_profile.command) in
-Finder. Choose a gateway profile or the normal macOS profile from its menu.
+Finder. Choose the gateway-enabled Antigravity App, the normal Antigravity App,
+or the normal standalone IDE from its menu.
 Gateway mode reads the first key from this project's `config.json` (or prompts
 for it without echoing), starts `python gemini_web2api.py` in the background if
 the local gateway is not already responding, fetches the current model list,
-and launches the selected app. Server output goes to
+and launches the Antigravity App. Server output goes to
 `~/Library/Logs/gemini-web2api-profile-switcher.log`. Normal mode opens the
-regular app profile. Close an already open Antigravity window before switching
-profiles to avoid reusing the wrong window.
+regular app or IDE profile. Close an already open Antigravity App before
+switching profiles to avoid reusing the wrong window.
 
 ## Prerequisites
 
@@ -103,44 +106,27 @@ curl -N http://127.0.0.1:8081/v1/chat/completions \
   -d '{"model":"antigravity/gemini-3.8-flash-low","stream":true,"messages":[{"role":"user","content":"Reply with exactly: Antigravity works"}]}'
 ```
 
-## Open the same gateway in Antigravity IDE
+## Antigravity IDE support
 
-The Antigravity IDE can use the same gateway variables. Open a second terminal
-and set them again (the Antigravity app occupies the terminal used to launch
-it). Use a separate temporary IDE profile so its normal profile and settings
-remain untouched:
-
-```sh
-read -s 'GATEWAY_API_KEY?Gateway API key: '
-echo
-export AGY_LLM_GATEWAY_URL='http://127.0.0.1:8081'
-export AGY_LLM_GATEWAY_API_KEY="$GATEWAY_API_KEY"
-export AGY_LLM_GATEWAY_WIRE_PROTOCOL='openai'
-export AGY_LLM_GATEWAY_MODELS="$(curl -fsS "$AGY_LLM_GATEWAY_URL/v1/models" \
-  -H "Authorization: Bearer $GATEWAY_API_KEY" | jq -r '.data | map(.id) | join(",")')"
-
-/Applications/Antigravity\ IDE.app/Contents/MacOS/Electron \
-  --user-data-dir=/private/tmp/antigravity-ide-gateway-profile --new-window
-```
-
-The IDE model picker should show the same IDs returned by the gateway's
-`/v1/models` endpoint. Environment variables do not carry over when the IDE is
-opened from the Dock; run the launch commands again in a terminal. The Antigravity
-app and IDE share local Antigravity sign-in credentials, so there is no need to
-copy credential or token files between their profiles.
+Google's current support matrix excludes the standalone Antigravity IDE from
+custom enterprise gateway deployments. Passing `AGY_LLM_GATEWAY_*` variables
+to its Electron process can open a separate window, but does not make the
+standalone IDE route requests through this gateway. Use option 1 in the
+switcher, which opens the supported Antigravity App with the isolated gateway
+profile. The IDE remains available in its normal profile using option 3.
 
 ### Local profile and backup locations
 
 - Gateway Antigravity App profile: `/private/tmp/antigravity-gateway-profile-all`
-- Gateway Antigravity IDE profile: `/private/tmp/antigravity-ide-gateway-profile`
+- Legacy IDE gateway test profile: `/private/tmp/antigravity-ide-gateway-profile` (retained; standalone IDE gateway is unsupported)
 - Private local backup copy: `/Users/ashish/Documents/Codex/antigravity-profile-backups/gateway-ide-profile-2026-11-13/profile`
 
 The backup is outside this repository, has owner-only directory permissions,
 and is not tracked or pushed by Git. Antigravity profiles can contain cookies,
 local storage, and other private session data; keep the backup private. The
-original IDE profile remains at the tested path and was not deleted. The
-switcher recreates either temporary profile directory if macOS has cleaned it
-up; the IDE backup can be restored manually if needed.
+original IDE profile remains at its existing path and was not deleted. The
+switcher recreates the temporary App profile if macOS has cleaned it up; the
+legacy IDE backup can be restored manually if needed.
 
 ## Switch Google accounts when Antigravity quota is exhausted
 
@@ -153,41 +139,43 @@ First identify the provider from the selected model ID:
   its app, CLI, and IDE, so this signs out of the shared local Antigravity
   session.
 - For Gemini Web IDs such as `gemini-3.1-pro`, the request uses the Gemini
-  account represented by the cookie file configured on the local gateway. The
-  IDE's Google sign-in does not switch that account. To use another account,
+  account represented by the cookie file configured on the local gateway.
+  Antigravity sign-in does not switch that account. To use another account,
   configure a separate cookie file for that account in the gateway's existing
   `cookie_file` setting, then restart the gateway. Do not paste cookies or
   tokens into the IDE, this guide, or chat.
 - The `sk-gemini` value is the local gateway API key; it is not the Google
   account credential and switching it does not change model quota.
 
-If this IDE session is using an API-key or enterprise gateway authentication
+If the Antigravity App is using an API-key or enterprise gateway authentication
 mode instead of a personal Antigravity sign-in, `/logout` does not switch the
 upstream account; switch the account or key at the gateway provider instead.
 
 ## Current limits and troubleshooting
 
-- The `antigravity/` adapter currently handles text chat only. It rejects
-  OpenAI tools/function calling and multimodal input. Antigravity IDE's agent
-  may attach tools to its requests; if so, the IDE request can fail with
-  `Antigravity CLI provider does not support OpenAI tools`. A direct text-only
-  `curl` request is the way to verify the CLI-backed provider today.
+- The `antigravity/` adapter supports text chat and OpenAI function tools.
+  Tool schemas are supplied to `agy` as prompt instructions and parsed tool
+  calls are returned to the client; the gateway does not execute those tools.
+  Multimodal input is still unsupported.
+- Google documents enterprise custom gateways for Antigravity App, CLI, and
+  supported IDE extensions; the standalone Antigravity IDE is not a supported
+  enterprise deployment surface. Use option 1 in the profile switcher for the
+  local gateway. See [Google's supported products](https://antigravity.google/docs/enterprise).
 - Only models returned by the local gateway are selectable. Antigravity model
   access depends on the signed-in CLI account and Google-side availability.
 - Gemini 4 Argon and Hydrogen are not hard-coded into the Gemini Web provider.
   The Gemini Web implementation needs verified upstream model routing before
   those names can be advertised safely; adding names alone can silently route
   to another model. Check `/v1/models` before relying on either model.
-- If the IDE picker has no gateway models, confirm the gateway is running,
-  re-run the launch commands in the same terminal (including the environment
-  variables), and launch the isolated window again.
+- If the Antigravity App picker has no gateway models, confirm the gateway is
+  running and relaunch option 1 in the switcher.
 - If `/v1/models` returns `invalid api key`, use the exact key in the local
   `config.json` `api_keys` list.
 - If `agy models` fails, sign in to the CLI and retry. The model list is
   discovered from that command; no Antigravity IDE configuration is changed.
 
-## Return to the normal IDE profile
+## Return to normal profiles
 
-Quit the isolated Antigravity window. Open Antigravity normally from the Dock or
-Applications. The normal profile and its settings were not edited by this
+Choose option 2 or 3 in the switcher to open the normal Antigravity App or
+standalone IDE profile. Their settings were not edited by this
 setup.

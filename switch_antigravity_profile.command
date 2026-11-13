@@ -9,10 +9,8 @@ GATEWAY_URL="${GEMINI_WEB2API_URL:-http://127.0.0.1:8081}"
 APP_NAME="/Applications/Antigravity.app"
 APP_BIN="$APP_NAME/Contents/MacOS/Antigravity"
 IDE_NAME="/Applications/Antigravity IDE.app"
-IDE_BIN="$IDE_NAME/Contents/MacOS/Electron"
 
 APP_PROFILE_DIR="/private/tmp/antigravity-gateway-profile-all"
-IDE_PROFILE_DIR="/private/tmp/antigravity-ide-gateway-profile"
 LOG_FILE="${HOME}/Library/Logs/gemini-web2api-profile-switcher.log"
 
 unset AGY_LLM_GATEWAY_URL AGY_LLM_GATEWAY_API_KEY AGY_LLM_GATEWAY_WIRE_PROTOCOL AGY_LLM_GATEWAY_MODELS
@@ -152,18 +150,16 @@ launch_normal_profile() {
 }
 
 printf '\nAntigravity profile switcher\n'
-printf '1) Antigravity App — local gateway profile\n'
-printf '2) Antigravity IDE — local gateway profile\n'
-printf '3) Antigravity App — normal profile\n'
-printf '4) Antigravity IDE — normal profile\n'
+printf '1) Antigravity App — local gateway profile (supported)\n'
+printf '2) Antigravity App — normal profile\n'
+printf '3) Antigravity IDE — normal profile (standalone IDE gateway unsupported)\n'
 printf 'q) Quit\n\n'
 read -r -p 'Choose an option: ' choice
 
 case "$choice" in
   1) launch_gateway_profile 'Antigravity App' "$APP_BIN" "$APP_PROFILE_DIR" ;;
-  2) launch_gateway_profile 'Antigravity IDE' "$IDE_BIN" "$IDE_PROFILE_DIR" ;;
-  3) launch_normal_profile 'Antigravity App' "$APP_NAME" ;;
-  4) launch_normal_profile 'Antigravity IDE' "$IDE_NAME" ;;
+  2) launch_normal_profile 'Antigravity App' "$APP_NAME" ;;
+  3) launch_normal_profile 'Antigravity IDE' "$IDE_NAME" ;;
   q|Q) exit 0 ;;
   *) printf 'Invalid option.\n' >&2; exit 2 ;;
 esac

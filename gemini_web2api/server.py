@@ -12,7 +12,8 @@ from .gemini import generate, generate_stream, log
 from .tools import messages_to_prompt, parse_tool_calls, google_contents_to_prompt, parse_google_function_calls
 from .multimodal import detect_image_mime, fetch_image_bytes, upload_image
 from . import __version__
-from .antigravity import discover_models, stream_completion as antigravity_stream_completion
+from .antigravity import (discover_models, parse_tool_calls as parse_antigravity_tool_calls,
+                          stream_completion as antigravity_stream_completion)
 
 
 def _usage(prompt: str, text: str) -> dict:
@@ -182,14 +183,13 @@ class GeminiHandler(BaseHTTPRequestHandler):
     # ─── Antigravity CLI chat completions ─────────────────────────────────────
 
     def _handle_antigravity_chat(self, req: dict, model_id: str):
-        if req.get("tools"):
-            self.send_json({"error": {"message": "Antigravity CLI provider does not support OpenAI tools"}}, 400)
-            return
+        tools = req.get("tools")
+        tool_choice = req.get("tool_choice", "auto")
         try:
             messages = req.get("messages", [])
             # Validate unsupported multimodal payloads before starting the CLI.
             from .antigravity import _prompt_from_messages
-            _prompt_from_messages(messages)
+            _prompt_from_messages(messages, tools, tool_choice)
         except ValueError as exc:
             self.send_json({"error": {"message": str(exc)}}, 400)
             return
@@ -198,32 +198,51 @@ class GeminiHandler(BaseHTTPRequestHandler):
         stream = bool(req.get("stream", False))
         headers_sent = False
         try:
-            deltas = antigravity_stream_completion(model_id, messages, CONFIG)
+            deltas = antigravity_stream_completion(model_id, messages, CONFIG, tools, tool_choice)
             if stream:
+                text = "".join(deltas) if tools and tool_choice != "none" else None
+                tool_calls = None
+                if text is not None:
+                    text, tool_calls = parse_antigravity_tool_calls(text, tools, tool_choice)
                 self._start_sse()
                 headers_sent = True
                 first = {"id": cid, "object": "chat.completion.chunk", "created": created,
                          "model": f"antigravity/{model_id}",
                          "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]}
                 self.wfile.write(f"data: {json.dumps(first)}\n\n".encode()); self.wfile.flush()
-                content = []
-                for delta in deltas:
-                    content.append(delta)
-                    chunk = {"id": cid, "object": "chat.completion.chunk", "created": created,
-                             "model": f"antigravity/{model_id}",
-                             "choices": [{"index": 0, "delta": {"content": delta}, "finish_reason": None}]}
-                    self.wfile.write(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()); self.wfile.flush()
+                if text is None:
+                    for delta in deltas:
+                        chunk = {"id": cid, "object": "chat.completion.chunk", "created": created,
+                                 "model": f"antigravity/{model_id}",
+                                 "choices": [{"index": 0, "delta": {"content": delta}, "finish_reason": None}]}
+                        self.wfile.write(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()); self.wfile.flush()
+                else:
+                    delta = {"tool_calls": [
+                        {"index": i, **call} for i, call in enumerate(tool_calls or [])
+                    ]} if tool_calls else {"content": text}
+                    if tool_calls or text:
+                        chunk = {"id": cid, "object": "chat.completion.chunk", "created": created,
+                                 "model": f"antigravity/{model_id}",
+                                 "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
+                        self.wfile.write(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()); self.wfile.flush()
                 end = {"id": cid, "object": "chat.completion.chunk", "created": created,
                        "model": f"antigravity/{model_id}",
-                       "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                       "choices": [{"index": 0, "delta": {},
+                                    "finish_reason": "tool_calls" if tool_calls else "stop"}]}
                 self.wfile.write(f"data: {json.dumps(end)}\n\n".encode())
                 self.wfile.write(b"data: [DONE]\n\n"); self.wfile.flush()
                 return
             text = "".join(deltas)
+            tool_calls = None
+            if tools and tool_choice != "none":
+                text, tool_calls = parse_antigravity_tool_calls(text, tools, tool_choice)
+            message = {"role": "assistant", "content": text or None}
+            if tool_calls:
+                message["tool_calls"] = tool_calls
             self.send_json({"id": cid, "object": "chat.completion", "created": created,
                             "model": f"antigravity/{model_id}",
-                            "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
-                                         "finish_reason": "stop"}],
+                            "choices": [{"index": 0, "message": message,
+                                         "finish_reason": "tool_calls" if tool_calls else "stop"}],
                             "usage": _usage(json.dumps(messages, ensure_ascii=False), text)})
         except Exception as exc:
             log(f"Antigravity error: {exc}")
