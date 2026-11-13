@@ -87,7 +87,7 @@ Supports Google native API endpoints:
 
 ## Antigravity CLI Provider (optional)
 
-For the step-by-step macOS IDE gateway setup, see [ANTIGRAVITY_SETUP.md](ANTIGRAVITY_SETUP.md).
+For one-click profile switching on macOS, double-click [switch_antigravity_profile.command](switch_antigravity_profile.command). See [ANTIGRAVITY_SETUP.md](ANTIGRAVITY_SETUP.md) for setup and account-switching details.
 
 If the Antigravity CLI (`agy`) is installed and authenticated, its models appear in `GET /v1/models` with IDs prefixed by `antigravity/`. Requests use `POST /v1/chat/completions` and support both ordinary and SSE streaming responses.
 

@@ -5,6 +5,17 @@ Antigravity's OpenAI-compatible enterprise gateway. It uses a separate temporary
 Antigravity profile and environment variables; it does not edit the normal IDE
 profile or global Antigravity settings.
 
+For one-click switching between App and IDE profiles, double-click
+[`switch_antigravity_profile.command`](switch_antigravity_profile.command) in
+Finder. Choose a gateway profile or the normal macOS profile from its menu.
+Gateway mode reads the first key from this project's `config.json` (or prompts
+for it without echoing), starts `python gemini_web2api.py` in the background if
+the local gateway is not already responding, fetches the current model list,
+and launches the selected app. Server output goes to
+`~/Library/Logs/gemini-web2api-profile-switcher.log`. Normal mode opens the
+regular app profile. Close an already open Antigravity window before switching
+profiles to avoid reusing the wrong window.
+
 ## Prerequisites
 
 1. Run `gemini-web2api` locally and confirm it listens on port `8081`.
@@ -108,7 +119,7 @@ export AGY_LLM_GATEWAY_WIRE_PROTOCOL='openai'
 export AGY_LLM_GATEWAY_MODELS="$(curl -fsS "$AGY_LLM_GATEWAY_URL/v1/models" \
   -H "Authorization: Bearer $GATEWAY_API_KEY" | jq -r '.data | map(.id) | join(",")')"
 
-/Applications/Antigravity\ IDE.app/Contents/MacOS/Electron \
+open -n -a "/Applications/Antigravity IDE.app" --args \
   --user-data-dir=/private/tmp/antigravity-ide-gateway-profile --new-window
 ```
 
@@ -117,6 +128,19 @@ The IDE model picker should show the same IDs returned by the gateway's
 opened from the Dock; run the launch commands again in a terminal. The Antigravity
 app and IDE share local Antigravity sign-in credentials, so there is no need to
 copy credential or token files between their profiles.
+
+### Local profile and backup locations
+
+- Gateway Antigravity App profile: `/private/tmp/antigravity-gateway-profile-all`
+- Gateway Antigravity IDE profile: `/private/tmp/antigravity-ide-gateway-profile`
+- Private local backup copy: `/Users/ashish/Documents/Codex/antigravity-profile-backups/gateway-ide-profile-2026-11-13/profile`
+
+The backup is outside this repository, has owner-only directory permissions,
+and is not tracked or pushed by Git. Antigravity profiles can contain cookies,
+local storage, and other private session data; keep the backup private. The
+original IDE profile remains at the tested path and was not deleted. The
+switcher recreates either temporary profile directory if macOS has cleaned it
+up; the IDE backup can be restored manually if needed.
 
 ## Switch Google accounts when Antigravity quota is exhausted
 
