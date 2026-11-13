@@ -20,6 +20,7 @@ Convert Google Gemini's web interface into an OpenAI-compatible API. Zero cost, 
 - **Streaming**: SSE streaming support via `httpx`
 - **Codex CLI**: Responses API (`/v1/responses`) for OpenAI Codex integration
 - **Gemini CLI**: Google native API (`/v1beta/models`) for Gemini CLI compatibility
+- **Antigravity CLI**: optional `agy` provider with live model discovery and OpenAI chat streaming
 
 ## Quick Start
 
@@ -83,6 +84,26 @@ Supports Google native API endpoints:
 - `GET /v1beta/models` — list models
 - `POST /v1beta/models/{model}:generateContent` — non-streaming
 - `POST /v1beta/models/{model}:streamGenerateContent` — streaming (SSE)
+
+## Antigravity CLI Provider (optional)
+
+For the step-by-step macOS IDE gateway setup, see [ANTIGRAVITY_SETUP.md](ANTIGRAVITY_SETUP.md).
+
+If the Antigravity CLI (`agy`) is installed and authenticated, its models appear in `GET /v1/models` with IDs prefixed by `antigravity/`. Requests use `POST /v1/chat/completions` and support both ordinary and SSE streaming responses.
+
+The provider launches `agy` in headless mode with sandbox and plan-mode flags, uses a temporary empty working directory for each request, and never edits Antigravity IDE or CLI settings. By default it searches `PATH` and `~/.gemini/bin/agy`; an explicit executable path can be configured with `antigravity_cli`. CLI discovery requires `agy models` to run successfully.
+
+Example:
+
+```json
+{
+  "model": "antigravity/gemini-3.7-flash-medium",
+  "messages": [{"role": "user", "content": "Hello!"}],
+  "stream": true
+}
+```
+
+This adapter accepts text messages only. OpenAI tools/function calling and multimodal content are rejected with HTTP 400. Antigravity requests use the credentials already held by the CLI and are subject to the account's Antigravity access and quota.
 
 ## Available Models
 
@@ -175,7 +196,9 @@ Create `config.json` in the same directory:
   "cookie_file": null,
   "proxy": null,
   "log_requests": true,
-  "temporary_chats": false
+  "temporary_chats": false,
+  "antigravity_cli": null,
+  "antigravity_timeout_sec": 180
 }
 ```
 

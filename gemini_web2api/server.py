@@ -12,6 +12,7 @@ from .gemini import generate, generate_stream, log
 from .tools import messages_to_prompt, parse_tool_calls, google_contents_to_prompt, parse_google_function_calls
 from .multimodal import detect_image_mime, fetch_image_bytes, upload_image
 from . import __version__
+from .antigravity import discover_models, stream_completion as antigravity_stream_completion
 
 
 def _usage(prompt: str, text: str) -> dict:
@@ -128,11 +129,16 @@ class GeminiHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": {"message": "invalid api key"}}, 401)
                 return
             if self.path == "/v1/models":
-                self.send_json({"object": "list", "data": [
+                data = [
                     {"id": n, "object": "model", "created": 1700000000,
                      "owned_by": "google", "description": c["desc"]}
                     for n, c in MODELS.items()
-                ]})
+                ]
+                data.extend({"id": f"antigravity/{slug}", "object": "model",
+                             "created": 1700000000, "owned_by": "google-antigravity",
+                             "description": label}
+                            for slug, label in discover_models(CONFIG))
+                self.send_json({"object": "list", "data": data})
             elif self.path.startswith("/v1beta/models"):
                 self.send_json({"models": [
                     {"name": f"models/{n}", "displayName": n, "description": c["desc"],
@@ -173,13 +179,75 @@ class GeminiHandler(BaseHTTPRequestHandler):
 
     # ─── /v1/chat/completions ─────────────────────────────────────────────────
 
+    # ─── Antigravity CLI chat completions ─────────────────────────────────────
+
+    def _handle_antigravity_chat(self, req: dict, model_id: str):
+        if req.get("tools"):
+            self.send_json({"error": {"message": "Antigravity CLI provider does not support OpenAI tools"}}, 400)
+            return
+        try:
+            messages = req.get("messages", [])
+            # Validate unsupported multimodal payloads before starting the CLI.
+            from .antigravity import _prompt_from_messages
+            _prompt_from_messages(messages)
+        except ValueError as exc:
+            self.send_json({"error": {"message": str(exc)}}, 400)
+            return
+        cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+        created = int(time.time())
+        stream = bool(req.get("stream", False))
+        headers_sent = False
+        try:
+            deltas = antigravity_stream_completion(model_id, messages, CONFIG)
+            if stream:
+                self._start_sse()
+                headers_sent = True
+                first = {"id": cid, "object": "chat.completion.chunk", "created": created,
+                         "model": f"antigravity/{model_id}",
+                         "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]}
+                self.wfile.write(f"data: {json.dumps(first)}\n\n".encode()); self.wfile.flush()
+                content = []
+                for delta in deltas:
+                    content.append(delta)
+                    chunk = {"id": cid, "object": "chat.completion.chunk", "created": created,
+                             "model": f"antigravity/{model_id}",
+                             "choices": [{"index": 0, "delta": {"content": delta}, "finish_reason": None}]}
+                    self.wfile.write(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()); self.wfile.flush()
+                end = {"id": cid, "object": "chat.completion.chunk", "created": created,
+                       "model": f"antigravity/{model_id}",
+                       "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                self.wfile.write(f"data: {json.dumps(end)}\n\n".encode())
+                self.wfile.write(b"data: [DONE]\n\n"); self.wfile.flush()
+                return
+            text = "".join(deltas)
+            self.send_json({"id": cid, "object": "chat.completion", "created": created,
+                            "model": f"antigravity/{model_id}",
+                            "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
+                                         "finish_reason": "stop"}],
+                            "usage": _usage(json.dumps(messages, ensure_ascii=False), text)})
+        except Exception as exc:
+            log(f"Antigravity error: {exc}")
+            try:
+                if headers_sent:
+                    error = {"error": {"message": f"Antigravity provider error: {exc}"}}
+                    self.wfile.write(f"data: {json.dumps(error)}\n\n".encode())
+                    self.wfile.write(b"data: [DONE]\n\n")
+                    self.wfile.flush()
+                else:
+                    self.send_json({"error": {"message": f"Antigravity provider error: {exc}"}}, 502)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
     def _handle_chat(self, body: bytes):
         req = self._parse_body(body)
         if req is None:
             self.send_json({"error": {"message": "invalid JSON"}}, 400)
             return
-        model_name, model_id, think_mode, err, extra_fields = resolve_model(
-            req.get("model", CONFIG["default_model"]))
+        requested_model = req.get("model", CONFIG["default_model"])
+        if isinstance(requested_model, str) and requested_model.startswith("antigravity/"):
+            self._handle_antigravity_chat(req, requested_model.split("/", 1)[1])
+            return
+        model_name, model_id, think_mode, err, extra_fields = resolve_model(requested_model)
         if err:
             self.send_json({"error": {"message": err}}, 400)
             return

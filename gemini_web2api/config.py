@@ -17,6 +17,8 @@ DEFAULT_CONFIG = {
     "proxy": None,
     "api_keys": [],
     "temporary_chats": False,
+    "antigravity_cli": None,
+    "antigravity_timeout_sec": 180,
 }
 
 CONFIG = dict(DEFAULT_CONFIG)
