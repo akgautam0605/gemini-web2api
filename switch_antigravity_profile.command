@@ -7,7 +7,9 @@ CONFIG_FILE="$PROJECT_DIR/config.json"
 GATEWAY_URL="${GEMINI_WEB2API_URL:-http://127.0.0.1:8081}"
 
 APP_NAME="/Applications/Antigravity.app"
+APP_BIN="$APP_NAME/Contents/MacOS/Antigravity"
 IDE_NAME="/Applications/Antigravity IDE.app"
+IDE_BIN="$IDE_NAME/Contents/MacOS/Electron"
 
 APP_PROFILE_DIR="/private/tmp/antigravity-gateway-profile-all"
 IDE_PROFILE_DIR="/private/tmp/antigravity-ide-gateway-profile"
@@ -111,9 +113,9 @@ start_gateway_if_needed() {
 }
 
 launch_gateway_profile() {
-  local surface="$1" app_path="$2" profile_dir="$3"
-  if [[ ! -d "$app_path" ]]; then
-    printf 'Could not find app: %s\n' "$app_path" >&2
+  local surface="$1" binary="$2" profile_dir="$3"
+  if [[ ! -x "$binary" ]]; then
+    printf 'Could not find executable: %s\n' "$binary" >&2
     exit 1
   fi
 
@@ -136,7 +138,7 @@ launch_gateway_profile() {
     AGY_LLM_GATEWAY_API_KEY="$gateway_key" \
     AGY_LLM_GATEWAY_WIRE_PROTOCOL='openai' \
     AGY_LLM_GATEWAY_MODELS="$model_ids" \
-    open -n -a "$app_path" --args --user-data-dir="$profile_dir" --new-window
+    "$binary" --user-data-dir="$profile_dir" --new-window
 }
 
 launch_normal_profile() {
@@ -158,8 +160,8 @@ printf 'q) Quit\n\n'
 read -r -p 'Choose an option: ' choice
 
 case "$choice" in
-  1) launch_gateway_profile 'Antigravity App' "$APP_NAME" "$APP_PROFILE_DIR" ;;
-  2) launch_gateway_profile 'Antigravity IDE' "$IDE_NAME" "$IDE_PROFILE_DIR" ;;
+  1) launch_gateway_profile 'Antigravity App' "$APP_BIN" "$APP_PROFILE_DIR" ;;
+  2) launch_gateway_profile 'Antigravity IDE' "$IDE_BIN" "$IDE_PROFILE_DIR" ;;
   3) launch_normal_profile 'Antigravity App' "$APP_NAME" ;;
   4) launch_normal_profile 'Antigravity IDE' "$IDE_NAME" ;;
   q|Q) exit 0 ;;

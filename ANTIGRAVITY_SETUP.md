@@ -119,7 +119,7 @@ export AGY_LLM_GATEWAY_WIRE_PROTOCOL='openai'
 export AGY_LLM_GATEWAY_MODELS="$(curl -fsS "$AGY_LLM_GATEWAY_URL/v1/models" \
   -H "Authorization: Bearer $GATEWAY_API_KEY" | jq -r '.data | map(.id) | join(",")')"
 
-open -n -a "/Applications/Antigravity IDE.app" --args \
+/Applications/Antigravity\ IDE.app/Contents/MacOS/Electron \
   --user-data-dir=/private/tmp/antigravity-ide-gateway-profile --new-window
 ```
 
